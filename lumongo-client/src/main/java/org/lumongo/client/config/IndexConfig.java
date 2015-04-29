@@ -9,7 +9,7 @@ import java.util.TreeMap;
 public class IndexConfig {
 	
 	private String defaultSearchField;
-	private Boolean applyUncommitedDeletes;
+	private Boolean applyUncommittedDeletes;
 	private Double requestFactor;
 	private Integer minSegmentRequest;
 	private Integer numberOfSegments;
@@ -21,6 +21,8 @@ public class IndexConfig {
 	private Double segmentTolerance;
 	private Integer segmentQueryCacheSize;
 	private Integer segmentQueryCacheMaxAmount;
+	private Boolean storeDocumentInIndex;
+	private Boolean storeDocumentInMongo;
 	
 	private TreeMap<String, FieldConfig> fieldMap;
 	
@@ -42,12 +44,12 @@ public class IndexConfig {
 		return this;
 	}
 	
-	public boolean isApplyUncommitedDeletes() {
-		return applyUncommitedDeletes;
+	public boolean isApplyUncommittedDeletes() {
+		return applyUncommittedDeletes;
 	}
 	
-	public IndexConfig setApplyUncommitedDeletes(boolean applyUncommitedDeletes) {
-		this.applyUncommitedDeletes = applyUncommitedDeletes;
+	public IndexConfig setApplyUncommittedDeletes(boolean applyUncommittedDeletes) {
+		this.applyUncommittedDeletes = applyUncommittedDeletes;
 		return this;
 	}
 	
@@ -86,7 +88,25 @@ public class IndexConfig {
 		this.indexName = indexName;
 		return this;
 	}
-	
+
+	public Boolean isStoreDocumentInIndex() {
+		return storeDocumentInIndex;
+	}
+
+	public IndexConfig setStoreDoumentInIndex(Boolean storeDocumentInIndex) {
+		this.storeDocumentInIndex = storeDocumentInIndex;
+		return this;
+	}
+
+	public Boolean isStoreDocumentInMongo() {
+		return storeDocumentInMongo;
+	}
+
+	public IndexConfig setStoreDoumentInMongo(Boolean storeDocumentInMongo) {
+		this.storeDocumentInMongo = storeDocumentInMongo;
+		return this;
+	}
+
 	public int getIdleTimeWithoutCommit() {
 		return idleTimeWithoutCommit;
 	}
@@ -169,8 +189,8 @@ public class IndexConfig {
 		if (defaultSearchField != null) {
 			isb.setDefaultSearchField(defaultSearchField);
 		}
-		if (applyUncommitedDeletes != null) {
-			isb.setApplyUncommitedDeletes(applyUncommitedDeletes);
+		if (applyUncommittedDeletes != null) {
+			isb.setApplyUncommittedDeletes(applyUncommittedDeletes);
 		}
 		if (requestFactor != null) {
 			isb.setRequestFactor(requestFactor);
@@ -196,6 +216,12 @@ public class IndexConfig {
 		if (segmentQueryCacheSize != null) {
 			isb.setSegmentQueryCacheSize(segmentQueryCacheSize);
 		}
+		if (storeDocumentInIndex != null){
+			isb.setStoreDocumentInIndex(storeDocumentInIndex);
+		}
+		if (storeDocumentInMongo != null){
+			isb.setStoreDocumentInMongo(storeDocumentInMongo);
+		}
 		
 		if (segmentQueryCacheMaxAmount != null) {
 			isb.setSegmentQueryCacheMaxAmount(segmentQueryCacheMaxAmount);
@@ -211,7 +237,7 @@ public class IndexConfig {
 	
 	protected void configure(IndexSettings indexSettings) {
 		this.defaultSearchField = indexSettings.getDefaultSearchField();
-		this.applyUncommitedDeletes = indexSettings.getApplyUncommitedDeletes();
+		this.applyUncommittedDeletes = indexSettings.getApplyUncommittedDeletes();
 		this.requestFactor = indexSettings.getRequestFactor();
 		this.minSegmentRequest = indexSettings.getMinSegmentRequest();
 		this.blockCompression = indexSettings.getBlockCompression();
@@ -221,6 +247,8 @@ public class IndexConfig {
 		this.segmentTolerance = indexSettings.getSegmentTolerance();
 		this.segmentQueryCacheSize = indexSettings.getSegmentQueryCacheSize();
 		this.segmentQueryCacheMaxAmount = indexSettings.getSegmentQueryCacheMaxAmount();
+		this.storeDocumentInIndex = indexSettings.hasStoreDocumentInIndex();
+		this.storeDocumentInMongo = indexSettings.hasStoreDocumentInMongo();
 		this.fieldMap = new TreeMap<>();
 		
 		for (FieldConfig fc : indexSettings.getFieldConfigList()) {
