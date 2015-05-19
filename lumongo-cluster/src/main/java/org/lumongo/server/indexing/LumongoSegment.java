@@ -2,19 +2,56 @@ package org.lumongo.server.indexing;
 
 import com.google.protobuf.ProtocolStringList;
 import org.apache.log4j.Logger;
-import org.apache.lucene.document.*;
+import org.apache.lucene.document.BinaryDocValuesField;
+import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field.Store;
-import org.apache.lucene.facet.*;
+import org.apache.lucene.document.LongField;
+import org.apache.lucene.document.SortedNumericDocValuesField;
+import org.apache.lucene.document.SortedSetDocValuesField;
+import org.apache.lucene.document.StringField;
+import org.apache.lucene.document.TextField;
+import org.apache.lucene.facet.DrillDownQuery;
+import org.apache.lucene.facet.DrillSideways;
 import org.apache.lucene.facet.DrillSideways.DrillSidewaysResult;
+import org.apache.lucene.facet.FacetField;
+import org.apache.lucene.facet.FacetResult;
+import org.apache.lucene.facet.Facets;
+import org.apache.lucene.facet.FacetsCollector;
+import org.apache.lucene.facet.FacetsConfig;
+import org.apache.lucene.facet.LabelAndValue;
 import org.apache.lucene.facet.taxonomy.FastTaxonomyFacetCounts;
 import org.apache.lucene.facet.taxonomy.directory.LumongoDirectoryTaxonomyReader;
 import org.apache.lucene.facet.taxonomy.directory.LumongoDirectoryTaxonomyWriter;
-import org.apache.lucene.index.*;
+import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.FieldInfo;
+import org.apache.lucene.index.FieldInfos;
+import org.apache.lucene.index.Fields;
+import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.IndexableField;
+import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.LumongoIndexWriter;
 import org.apache.lucene.index.Term;
+import org.apache.lucene.index.Terms;
+import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.index.TermsEnum.SeekStatus;
-import org.apache.lucene.search.*;
+import org.apache.lucene.search.BooleanClause;
+import org.apache.lucene.search.BooleanQuery;
+import org.apache.lucene.search.FieldDoc;
+import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.MultiCollector;
+import org.apache.lucene.search.Query;
+import org.apache.lucene.search.QueryWrapperFilter;
+import org.apache.lucene.search.ScoreDoc;
+import org.apache.lucene.search.Sort;
+import org.apache.lucene.search.SortField;
+import org.apache.lucene.search.SortedNumericSortField;
+import org.apache.lucene.search.SortedSetSortField;
+import org.apache.lucene.search.TopDocsCollector;
+import org.apache.lucene.search.TopFieldCollector;
+import org.apache.lucene.search.TopScoreDocCollector;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.NumericUtils;
+import org.bson.BSON;
 import org.bson.BSONObject;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
@@ -22,16 +59,45 @@ import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
 import org.lumongo.LumongoConstants;
 import org.lumongo.cluster.message.Lumongo;
-import org.lumongo.cluster.message.Lumongo.*;
+import org.lumongo.cluster.message.Lumongo.CountRequest;
+import org.lumongo.cluster.message.Lumongo.FacetAs;
 import org.lumongo.cluster.message.Lumongo.FacetAs.LMFacetType;
+import org.lumongo.cluster.message.Lumongo.FacetCount;
+import org.lumongo.cluster.message.Lumongo.FacetGroup;
+import org.lumongo.cluster.message.Lumongo.FacetRequest;
+import org.lumongo.cluster.message.Lumongo.FieldConfig;
+import org.lumongo.cluster.message.Lumongo.FieldSort;
 import org.lumongo.cluster.message.Lumongo.FieldSort.Direction;
+import org.lumongo.cluster.message.Lumongo.GetFieldNamesResponse;
+import org.lumongo.cluster.message.Lumongo.GetTermsRequest;
+import org.lumongo.cluster.message.Lumongo.GetTermsResponse;
+import org.lumongo.cluster.message.Lumongo.IndexAs;
+import org.lumongo.cluster.message.Lumongo.IndexSettings;
+import org.lumongo.cluster.message.Lumongo.LMAnalyzer;
+import org.lumongo.cluster.message.Lumongo.ScoredResult;
+import org.lumongo.cluster.message.Lumongo.SegmentCountResponse;
+import org.lumongo.cluster.message.Lumongo.SegmentResponse;
+import org.lumongo.cluster.message.Lumongo.SortRequest;
 import org.lumongo.server.config.IndexConfig;
-import org.lumongo.server.indexing.field.*;
+import org.lumongo.server.indexing.field.DateFieldIndexer;
+import org.lumongo.server.indexing.field.DoubleFieldIndexer;
+import org.lumongo.server.indexing.field.FloatFieldIndexer;
+import org.lumongo.server.indexing.field.IntFieldIndexer;
+import org.lumongo.server.indexing.field.LongFieldIndexer;
+import org.lumongo.server.indexing.field.StringFieldIndexer;
 import org.lumongo.server.searching.QueryWithFilters;
 import org.lumongo.util.LumongoUtil;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 
@@ -80,7 +146,8 @@ public class LumongoSegment {
 
 		this.uniqueIdField = indexConfig.getUniqueIdField();
 
-		this.fetchSet = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(uniqueIdField, LumongoConstants.TIMESTAMP_FIELD)));
+		this.fetchSet = Collections
+						.unmodifiableSet(new HashSet<>(Arrays.asList(uniqueIdField, LumongoConstants.TIMESTAMP_FIELD, LumongoConstants.STORED_DOC_FIELD)));
 
 		this.counter = new AtomicLong();
 		this.lastCommit = null;
@@ -516,6 +583,7 @@ public class LumongoSegment {
 							StringFieldIndexer.INSTANCE.index(d, storedFieldName, o, indexedFieldName);
 						}
 					}
+
 				}
 			}
 
@@ -537,6 +605,11 @@ public class LumongoSegment {
 		d.add(new StringField(indexConfig.getUniqueIdField(), uniqueId, Store.YES));
 
 		d.add(new LongField(LumongoConstants.TIMESTAMP_FIELD, timestamp, Store.YES));
+
+		if (indexConfig.getStoreDocumentInIndex()) {
+			byte[] documentBytes = BSON.encode(document);
+			d.add(new BinaryDocValuesField(LumongoConstants.STORED_DOC_FIELD, new BytesRef(documentBytes)));
+		}
 
 		Term term = new Term(indexConfig.getUniqueIdField(), uniqueId);
 		indexWriter.updateDocument(term, d);

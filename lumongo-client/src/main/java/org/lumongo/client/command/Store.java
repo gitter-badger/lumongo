@@ -28,7 +28,7 @@ public class Store extends SimpleCommand<StoreRequest, StoreResult> implements R
 	public Store(String uniqueId, String indexName) {
 		this.uniqueId = uniqueId;
 		this.indexName = indexName;
-		this.associatedDocuments = new ArrayList<AssociatedDocument>();
+		this.associatedDocuments = new ArrayList<>();
 	}
 	
 	@Override

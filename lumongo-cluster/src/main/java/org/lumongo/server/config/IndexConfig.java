@@ -372,6 +372,18 @@ public class IndexConfig {
 		return segmentQueryCacheMaxAmount;
 	}
 
+	public Boolean getStoreDocumentInMongo() {
+		return storeDocumentInMongo;
+	}
+
+	public Boolean getStoreDocumentInIndex() {
+		return storeDocumentInIndex;
+	}
+
+	public boolean isApplyUncommittedDeletes() {
+		return applyUncommittedDeletes;
+	}
+
 	public Document toDocument() {
 		Document dbObject = new Document();
 		dbObject.put(DEFAULT_SEARCH_FIELD, defaultSearchField);
