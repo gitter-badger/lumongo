@@ -7,7 +7,7 @@ description 'Lumongo Common'
 dependencies {
     compile 'org.mongodb:mongo-java-driver:3.0.0'
     compile 'com.google.guava:guava:18.0'
-    compile 'com.googlecode.protobuf-rpc-pro:protobuf-rpc-pro-duplex:3.3'
+    compile 'com.googlecode.protobuf-rpc-pro:protobuf-rpc-pro-duplex:3.3.1'
     compile 'log4j:log4j:1.2.17'
     compile 'org.slf4j:slf4j-log4j12:1.7.2'
     compile 'commons-pool:commons-pool:1.6'
@@ -39,6 +39,8 @@ task compileProto << {
 		outputDir.mkdir();
 	}
 
+	String pythonOutput = rootProject.file("alt-clients" + File.separator + "python").toString();
+
 	if (protoDir.isDirectory() && protoDir.exists()) {
 		
 		String[] protos = protoDir.list()
@@ -50,7 +52,7 @@ task compileProto << {
 				exec {
 					setStandardOutput(System.out)
 					executable protocCommand
-					args '--proto_path=' + protoDir.getAbsolutePath(), '--java_out=' + outputDir.getAbsolutePath(), protoFull
+					args '--proto_path=' + protoDir.getAbsolutePath(), '--python_out=' + pythonOutput, '--java_out=' + outputDir.getAbsolutePath(), protoFull
 				}
 			}
 		}
