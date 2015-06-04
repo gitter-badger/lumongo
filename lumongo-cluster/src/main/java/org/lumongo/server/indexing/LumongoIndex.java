@@ -664,9 +664,12 @@ public class LumongoIndex {
 					BasicBSONObject document = (BasicBSONObject) BSON.decode(storeRequest.getResultDocument().getDocument().toByteArray());
 
 					LumongoSegment s = findSegmentFromUniqueId(uniqueId);
-					s.index(uniqueId, document, timestamp);
+					s.index(uniqueId, document, timestamp, storeRequest.getResultDocument().getMetadataList());
 
-					documentStorage.storeSourceDocument(storeRequest.getUniqueId(), timestamp, document, storeRequest.getResultDocument().getMetadataList());
+					if (indexConfig.getStoreDocumentInMongo()) {
+						documentStorage.storeSourceDocument(storeRequest.getUniqueId(), timestamp, document,
+										storeRequest.getResultDocument().getMetadataList());
+					}
 				}
 
 				if (storeRequest.getClearExistingAssociated()) {
@@ -844,9 +847,13 @@ public class LumongoIndex {
 			for (final LumongoSegment segment : segmentMap.values()) {
 
 				Future<SegmentResponse> response = segmentPool
-								.submit(() -> segment.querySegment(queryWithFilters, requestedAmount, lastScoreDocMap.get(segment.getSegmentNumber()),
-																queryRequest.getFacetRequest(), queryRequest.getSortRequest(), queryRequest.getRealTime(),
-																new QueryCacheKey(queryRequest)));
+								.submit(() -> {
+									QueryCacheKey queryCacheKey = new QueryCacheKey(queryRequest);
+									FieldDoc lastScoreForSegment = lastScoreDocMap.get(segment.getSegmentNumber());
+									return segment.querySegment(queryWithFilters, requestedAmount, lastScoreForSegment,
+													queryRequest.getFacetRequest(), queryRequest.getSortRequest(), queryRequest.getRealTime(),
+													queryCacheKey, queryRequest.getResultFetchType());
+								});
 
 				responses.add(response);
 

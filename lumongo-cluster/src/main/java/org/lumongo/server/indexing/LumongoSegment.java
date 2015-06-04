@@ -1,6 +1,9 @@
 package org.lumongo.server.indexing;
 
+import com.google.protobuf.ByteString;
 import com.google.protobuf.ProtocolStringList;
+import com.mongodb.BasicDBObject;
+import com.mongodb.DBObject;
 import org.apache.log4j.Logger;
 import org.apache.lucene.document.BinaryDocValuesField;
 import org.apache.lucene.document.Document;
@@ -228,7 +231,7 @@ public class LumongoSegment {
 	}
 
 	public SegmentResponse querySegment(QueryWithFilters queryWithFilters, int amount, FieldDoc after, FacetRequest facetRequest, SortRequest sortRequest,
-					boolean realTime, QueryCacheKey queryCacheKey) throws Exception {
+					boolean realTime, QueryCacheKey queryCacheKey, Lumongo.FetchType resultFetchType) throws Exception {
 
 		IndexReader ir = null;
 
@@ -361,14 +364,14 @@ public class LumongoSegment {
 			int numResults = Math.min(results.length, amount);
 
 			for (int i = 0; i < numResults; i++) {
-				ScoredResult.Builder srBuilder = handleDocResult(is, sortRequest, sorting, results, i);
+				ScoredResult.Builder srBuilder = handleDocResult(is, sortRequest, sorting, results, i, resultFetchType);
 
 				builder.addScoredResult(srBuilder.build());
 
 			}
 
 			if (moreAvailable) {
-				ScoredResult.Builder srBuilder = handleDocResult(is, sortRequest, sorting, results, numResults);
+				ScoredResult.Builder srBuilder = handleDocResult(is, sortRequest, sorting, results, numResults, resultFetchType);
 				builder.setNext(srBuilder);
 			}
 
@@ -406,15 +409,44 @@ public class LumongoSegment {
 		builder.addFacetGroup(fg);
 	}
 
-	private ScoredResult.Builder handleDocResult(IndexSearcher is, SortRequest sortRequest, boolean sorting, ScoreDoc[] results, int i) throws IOException {
+	private ScoredResult.Builder handleDocResult(IndexSearcher is, SortRequest sortRequest, boolean sorting, ScoreDoc[] results, int i,
+					Lumongo.FetchType resultFetchType) throws IOException {
 		int docId = results[i].doc;
 		Document d = is.doc(docId, fetchSet);
 		ScoredResult.Builder srBuilder = ScoredResult.newBuilder();
 		srBuilder.setScore(results[i].score);
-		srBuilder.setUniqueId(d.get(indexConfig.getUniqueIdField()));
+		String uniqueId = d.get(indexConfig.getUniqueIdField());
+		srBuilder.setUniqueId(uniqueId);
 
 		IndexableField f = d.getField(LumongoConstants.TIMESTAMP_FIELD);
 		srBuilder.setTimestamp(f.numericValue().longValue());
+
+		if (indexConfig.getStoreDocumentInIndex() && !Lumongo.FetchType.NONE.equals(resultFetchType)) {
+			Lumongo.ResultDocument.Builder builder = Lumongo.ResultDocument.newBuilder();
+			builder.setIndexName(indexName);
+			builder.setTimestamp(srBuilder.getTimestamp());
+			builder.setUniqueId(uniqueId);
+
+			if (Lumongo.FetchType.FULL.equals(resultFetchType)) {
+				BytesRef storedDoc = d.getBinaryValue(LumongoConstants.STORED_DOC_FIELD);
+				if (storedDoc != null) {
+					builder.setDocument(ByteString.copyFrom(storedDoc.bytes));
+				}
+			}
+
+			if (Lumongo.FetchType.FULL.equals(resultFetchType) || Lumongo.FetchType.META.equals(resultFetchType)) {
+				BytesRef metaDoc = d.getBinaryValue(LumongoConstants.METADATA_FIELD);
+				if (metaDoc != null) {
+					DBObject document = new BasicDBObject();
+					document.putAll(BSON.decode(metaDoc.bytes));
+					for (String key : document.keySet()) {
+						builder.addMetadata(Lumongo.Metadata.newBuilder().setKey(key).setValue((String)document.get(key)));
+					}
+				}
+
+			}
+			srBuilder.setDocument(builder);
+		}
 
 		srBuilder.setDocId(docId);
 		srBuilder.setSegment(segmentNumber);
@@ -543,7 +575,7 @@ public class LumongoSegment {
 		indexWriter.close();
 	}
 
-	public void index(String uniqueId, BSONObject document, long timestamp) throws Exception {
+	public void index(String uniqueId, BSONObject document, long timestamp, List<Lumongo.Metadata> metadataList) throws Exception {
 		Document d = new Document();
 
 		List<FacetField> facetFields = new ArrayList<>();
@@ -607,8 +639,20 @@ public class LumongoSegment {
 		d.add(new LongField(LumongoConstants.TIMESTAMP_FIELD, timestamp, Store.YES));
 
 		if (indexConfig.getStoreDocumentInIndex()) {
-			byte[] documentBytes = BSON.encode(document);
-			d.add(new BinaryDocValuesField(LumongoConstants.STORED_DOC_FIELD, new BytesRef(documentBytes)));
+			{
+				byte[] documentBytes = BSON.encode(document);
+				d.add(new BinaryDocValuesField(LumongoConstants.STORED_DOC_FIELD, new BytesRef(documentBytes)));
+			}
+
+			{
+				BSONObject dbObject = new BasicDBObject();
+				for (Lumongo.Metadata metadata : metadataList) {
+					dbObject.put(metadata.getKey(), metadata.getValue());
+				}
+
+				byte[] metadataBytes = BSON.encode(dbObject);
+				d.add(new BinaryDocValuesField(LumongoConstants.METADATA_FIELD, new BytesRef(metadataBytes)));
+			}
 		}
 
 		Term term = new Term(indexConfig.getUniqueIdField(), uniqueId);
